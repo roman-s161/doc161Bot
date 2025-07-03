@@ -1,0 +1,13 @@
+.env
+venvForExampleBot
+venv/
+bot.log
+bot.pid
+watchdog.log
+api_stats.txt
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
