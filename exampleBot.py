@@ -20,18 +20,29 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-# Настройка логирования
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 # Загрузка переменных окружения
 load_dotenv()
 
-TOKEN = os.environ.get('BOT_TOKEN')
-OPENWEATHER_API_KEY= os.environ.get('OPENWEATHER_API_KEY')
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
+
+# Выбор токена в зависимости от режима
+if DEBUG:
+    TOKEN = os.environ.get('TEST_BOT_TOKEN')
+    OPENWEATHER_API_KEY = os.environ.get('TEST_OPENWEATHER_API_KEY')
+else:
+    TOKEN = os.environ.get('BOT_TOKEN')
+    OPENWEATHER_API_KEY = os.environ.get('OPENWEATHER_API_KEY')
 
 if not TOKEN:
     raise ValueError('BOT_TOKEN не найден')
+
+# Настройка логирования
+if DEBUG:
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
+else:
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 # Словарь городов и их координат
 CITIES = {
@@ -68,6 +79,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 def get_weather(city_key='taganrog', max_retries=3, retry_delay=2, force_refresh=False):
     """Получение данных о погоде с кэшированием и учетом лимита запросов"""
     global API_REQUESTS_COUNT, API_REQUESTS_RESET_DATE
+
+    logger.debug(f"get_weather вызван для {city_key}, force_refresh={force_refresh}") 
     
     if city_key not in CITIES:
         logger.error(f"Город {city_key} не найден")
@@ -83,6 +96,7 @@ def get_weather(city_key='taganrog', max_retries=3, retry_delay=2, force_refresh
         
         # Если кэш не устарел, используем его
         if cache_age < timedelta(minutes=CACHE_TTL):
+            logger.debug(f"Кэш найден для {city['name']}, возраст: {cache_age}")
             logger.info(f"Используются кэшированные данные для {city['name']} (возраст: {cache_age})")
             return cache_entry
     
@@ -181,6 +195,7 @@ def get_weather(city_key='taganrog', max_retries=3, retry_delay=2, force_refresh
 
 async def send_weather(update, context, city_key):
     """Общая функция для отправки данных о погоде"""
+    logger.debug(f"send_weather вызван для {city_key} от пользователя {update.effective_user.id}")
     logger.info(f"Получена команда погоды для {city_key}")
     
     await context.bot.send_message(
@@ -310,9 +325,13 @@ async def health_check(context):
 
 def main():
     """Запуск бота"""
+
+    logger.debug(f"Запуск в режиме DEBUG={DEBUG}")
+    logger.debug(f"Используется TOKEN: {TOKEN[:10]}...")  # Добавить (только первые 10 символов для безопасности)
+
     app = Application.builder().token(TOKEN).build()
     
-    # Добавление обработчиков команд
+    # Добавление обработчиков команд СНАЧАЛА
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('weather', weather_command))
     app.add_handler(CommandHandler('weather_matveev', weather_matveev))
@@ -323,9 +342,9 @@ def main():
     
     # Добавление периодической проверки работоспособности
     job_queue = app.job_queue
-    job_queue.run_repeating(health_check, interval=3600)  # Запуск каждый час
+    job_queue.run_repeating(health_check, interval=3600)
     
-    # Загрузка сохраненной статистики, если файл существует
+    # Загрузка сохраненной статистики
     try:
         if os.path.exists("api_stats.txt"):
             logger.info("Загрузка сохраненной статистики API")
@@ -344,7 +363,8 @@ def main():
     logger.info('Бот запускается...')
     
     try:
-        app.run_polling()
+        # Запуск одинаковый для всех режимов
+        app.run_polling(drop_pending_updates=True)
     except Exception as e:
         logger.error(f'Ошибка: {e}')
 
